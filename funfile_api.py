@@ -1,193 +1,155 @@
 #!/usr/bin/env python3
+"""
+FunFile API CLI
+Module: seedboxip
+"""
 
-import os
-import sys
+import argparse
 import json
+import sys
 import time
+import ipaddress
+import requests
+from pathlib import Path
 import hmac
 import hashlib
-import argparse
-import requests
 
-# ==========================================================
-# CONFIG
-# ==========================================================
+CONFIG_PATH = Path(__file__).parent / "config.json"
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
-
-
+# -------------------------
+# CONFIG LOADING
+# -------------------------
 def load_config():
-    if os.path.isfile(CONFIG_PATH):
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
         with open(CONFIG_PATH, "r") as f:
             return json.load(f)
-    return {}
-
+    except Exception:
+        return {}
 
 def resolve_credentials(args):
-    config = load_config()
-
-    api_key = args.api_key or config.get("api_key")
-    secret = args.secret or config.get("secret")
-    base_url = args.base_url or config.get(
-        "base_url", "https://www.funfile.org/api"
-    )
+    cfg = load_config()
+    api_key = args.api_key or cfg.get("api_key")
+    secret = args.secret or cfg.get("secret")
+    base_url = args.base_url or cfg.get("base_url", "https://www.funfile.org/api")
 
     if not api_key or not secret:
-        print("❌ API key or secret missing.")
-        sys.exit(1)
-
+        sys.exit("API key and secret must be provided via config.json or CLI flags")
     return api_key, secret, base_url.rstrip("/")
 
+# -------------------------
+# IP VALIDATION
+# -------------------------
+def validate_public_ip(ip_str: str):
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        sys.exit(f"Invalid IP address: {ip_str}")
 
-# ==========================================================
-# HMAC
-# ==========================================================
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+        sys.exit(f"Blocked non-public IP address: {ip_str}")
+    return ip_str
 
-def build_signature(secret, timestamp, body=None):
-    payload = str(timestamp)
-    if body:
-        payload += body
-
-    return hmac.new(
-        secret.encode(),
-        payload.encode(),
-        hashlib.sha256
-    ).hexdigest()
-
-
-# ==========================================================
-# CORE API REQUEST
-# ==========================================================
-
-def api_request(method, endpoint, api_key, secret, base_url, body_dict=None):
-    url = f"{base_url}{endpoint}"
-    timestamp = int(time.time())
-
-    body_json = json.dumps(body_dict) if body_dict else None
-    signature = build_signature(secret, timestamp, body_json)
-
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-Key": api_key,
-        "X-Timestamp": str(timestamp),
-        "X-Signature": signature,
-    }
-
-    if method == "GET":
-        return requests.get(url, headers=headers)
-
-    return requests.post(url, headers=headers, data=body_json)
-
-
-# ==========================================================
-# UTIL
-# ==========================================================
+def parse_ips(ips_arg):
+    if not ips_arg:
+        return None
+    ips = []
+    for ip in ips_arg.split(","):
+        ip = ip.strip()
+        if not ip:
+            continue
+        ips.append(validate_public_ip(ip))
+    return ips
 
 def detect_public_ip():
     try:
         r = requests.get("https://api.ipify.org", timeout=5)
-        return r.text.strip()
+        ip = r.text.strip()
+        return validate_public_ip(ip)
     except Exception:
-        return None
+        sys.exit("Could not detect public IP")
 
+# -------------------------
+# HMAC SIGNING
+# -------------------------
+def sign_request(secret, timestamp, body=None):
+    payload = str(timestamp)
+    if body:
+        payload += body
+    return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
-def print_response(response):
-    print(f"\nStatus: {response.status_code}")
+# -------------------------
+# API REQUESTS
+# -------------------------
+def api_request(method, url, api_key, secret, body=None):
+    timestamp = int(time.time())
+    signature = sign_request(secret, timestamp, body=json.dumps(body) if body else None)
+    headers = {
+        "X-API-Key": api_key,
+        "X-Timestamp": str(timestamp),
+        "X-Signature": signature,
+        "Content-Type": "application/json"
+    }
     try:
-        print(json.dumps(response.json(), indent=2))
-    except Exception:
-        print(response.text)
+        if method.upper() == "GET":
+            r = requests.get(url, headers=headers, timeout=10)
+        else:
+            r = requests.post(url, headers=headers, json=body, timeout=10)
+        return r
+    except Exception as e:
+        sys.exit(f"Request failed: {e}")
 
-
-# ==========================================================
-# SEEDBOX IP COMMANDS
-# ==========================================================
-
-def handle_seedboxip(args):
-    api_key, secret, base_url = resolve_credentials(args)
+# -------------------------
+# SEEDBOX IP MODULE
+# -------------------------
+def seedboxip_module(args, api_key, secret, base_url):
+    endpoint = f"{base_url}/v1/seedbox-ips"
 
     if args.action == "list":
-        response = api_request(
-            "GET",
-            "/v1/seedbox-ips",
-            api_key,
-            secret,
-            base_url
-        )
-        print_response(response)
-        return
-
-    # For add/remove/replace
-    if args.ips:
-        ip_list = [ip.strip() for ip in args.ips.split(",") if ip.strip()]
+        r = api_request("GET", endpoint, api_key, secret)
     else:
-        auto_ip = detect_public_ip()
-        if not auto_ip:
-            print("❌ No IP provided and failed to detect public IP.")
-            sys.exit(1)
-        print(f"Auto-detected public IP: {auto_ip}")
-        ip_list = [auto_ip]
+        ips = parse_ips(args.ips) if args.ips else [detect_public_ip()]
+        body = {"seedbox_ips": ips}
+        if args.action == "add":
+            r = api_request("POST", f"{endpoint}/add", api_key, secret, body)
+        elif args.action == "remove":
+            r = api_request("POST", f"{endpoint}/remove", api_key, secret, body)
+        elif args.action == "replace":
+            r = api_request("POST", f"{endpoint}/replace", api_key, secret, body)
+        else:
+            sys.exit(f"Unknown action: {args.action}")
 
-    body = {"seedbox_ips": ip_list}
+    print(f"Status: {r.status_code}\n")
+    try:
+        print(json.dumps(r.json(), indent=2))
+    except Exception:
+        print(r.text)
 
-    endpoint_map = {
-        "add": "/v1/seedbox-ips/add",
-        "remove": "/v1/seedbox-ips/remove",
-        "replace": "/v1/seedbox-ips/replace",
-    }
-
-    response = api_request(
-        "POST",
-        endpoint_map[args.action],
-        api_key,
-        secret,
-        base_url,
-        body
-    )
-
-    print_response(response)
-
-
-# ==========================================================
-# MAIN CLI
-# ==========================================================
-
+# -------------------------
+# ARGUMENT PARSING
+# -------------------------
 def main():
-    parser = argparse.ArgumentParser(
-        prog="funfile",
-        description="FunFile API CLI"
-    )
+    parser = argparse.ArgumentParser(description="FunFile API CLI")
+    parser.add_argument("--api-key", help="Public API key")
+    parser.add_argument("--secret", help="Secret key")
+    parser.add_argument("--base-url", help="API base URL")
 
-    parser.add_argument("--api-key")
-    parser.add_argument("--secret")
-    parser.add_argument("--base-url")
+    subparsers = parser.add_subparsers(dest="module", required=True)
 
-    subparsers = parser.add_subparsers(dest="module")
-
-    # ---- seedboxip module ----
-    seedbox_parser = subparsers.add_parser(
-        "seedboxip",
-        help="Manage seedbox IPs"
-    )
-
-    seedbox_sub = seedbox_parser.add_subparsers(dest="action")
-
-    for action in ["list", "add", "remove", "replace"]:
-        action_parser = seedbox_sub.add_parser(action)
-        if action != "list":
-            action_parser.add_argument(
-                "--ips",
-                help="Single or comma-separated IPs"
-            )
+    # Seedbox IP module
+    sb_parser = subparsers.add_parser("seedboxip", help="Manage seedbox IPs")
+    sb_parser.add_argument("action", choices=["list", "add", "remove", "replace"], help="Action to perform")
+    sb_parser.add_argument("--ips", help="Comma-separated IPs")
 
     args = parser.parse_args()
 
-    if args.module == "seedboxip":
-        handle_seedboxip(args)
-    else:
-        parser.print_help()
+    api_key, secret, base_url = resolve_credentials(args)
 
+    if args.module == "seedboxip":
+        seedboxip_module(args, api_key, secret, base_url)
+    else:
+        sys.exit(f"Unknown module: {args.module}")
 
 if __name__ == "__main__":
     main()
