@@ -1,0 +1,6 @@
+{
+  "api_key": "your_api_key",
+  "secret": "your_secret",
+  "base_url": "https://www.funfile.org/api"
+}
+
