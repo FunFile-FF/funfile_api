@@ -13,8 +13,10 @@ import requests
 from pathlib import Path
 import hmac
 import hashlib
+from urllib.parse import urlparse
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
+ALLOWED_HOSTS = ["www.funfile.org"]
 
 # -------------------------
 # CONFIG LOADING
@@ -80,9 +82,21 @@ def sign_request(secret, timestamp, body=None):
     return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 # -------------------------
+# URL VALIDATION
+# -------------------------
+def validate_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        sys.exit(f"Blocked invalid URL scheme: {parsed.scheme}")
+    if parsed.hostname not in ALLOWED_HOSTS:
+        sys.exit(f"Blocked request to unapproved host: {parsed.hostname}")
+    return url
+
+# -------------------------
 # API REQUESTS
 # -------------------------
 def api_request(method, url, api_key, secret, body=None):
+    url = validate_url(url)  # <- validate host
     timestamp = int(time.time())
     signature = sign_request(secret, timestamp, body=json.dumps(body) if body else None)
     headers = {
