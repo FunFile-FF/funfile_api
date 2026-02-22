@@ -1,21 +1,21 @@
 name: Build Windows EXE
 
 on:
-  workflow_dispatch:        # manual trigger
   push:
     tags:
-      - 'v*'                # auto-build when you push version tags
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -24,9 +24,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller requests
 
-      - name: Build executable
+      - name: Build EXE
+        run: pyinstaller --onefile funfile_api.py
+
+      - name: Prepare release folder
         run: |
-          pyinstaller --onefile funfile_api.py
+          mkdir release
+          copy dist\funfile_api.exe release\
+          copy config.sample.json release\
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -34,9 +39,14 @@ jobs:
           name: funfile-api-windows
           path: dist/*.exe
 
+      - name: Create ZIP
+        run: |
+          powershell Compress-Archive release\* funfile-api-${{ github.ref_name }}-windows.zip
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.exe
+          files: funfile-api-${{ github.ref_name }}-windows.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
