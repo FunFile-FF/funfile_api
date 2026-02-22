@@ -47,8 +47,10 @@ jobs:
           powershell Compress-Archive release\* funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip
 
       - name: Generate SHA256 checksum
+        shell: pwsh
         run: |
-          powershell Get-FileHash funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip -Algorithm SHA256 | Select-Object -ExpandProperty Hash > funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip.sha256
+          $hash = (Get-FileHash "funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip" -Algorithm SHA256).Hash
+          Set-Content -Path "funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip.sha256" -Value $hash
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
