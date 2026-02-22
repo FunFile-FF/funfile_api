@@ -15,7 +15,9 @@ import hmac
 import hashlib
 from urllib.parse import urlparse
 
-CONFIG_PATH = Path(__file__).parent / "config.json"
+#CONFIG_PATH = Path(__file__).parent / "config.json"
+CONFIG_PATH = Path(sys.executable).parent / "config.json" if getattr(sys, 'frozen', False) else Path(__file__).parent / "config.json"
+
 ALLOWED_HOSTS = ["www.funfile.org"]
 
 # -------------------------
