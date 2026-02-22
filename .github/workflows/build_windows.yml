@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build & Release Windows CLI (x86 + x64)
 
 on:
   push:
@@ -12,12 +12,19 @@ jobs:
   build:
     runs-on: windows-latest
 
-    steps:
-      - uses: actions/checkout@v4
+    strategy:
+      matrix:
+        architecture: [x64, x86]
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          architecture: ${{ matrix.architecture }}
 
       - name: Install dependencies
         run: |
@@ -25,28 +32,44 @@ jobs:
           pip install pyinstaller requests
 
       - name: Build EXE
-        run: pyinstaller --onefile funfile_api.py
+        run: |
+          pyinstaller --onefile funfile_api.py
 
-      - name: Prepare release folder
+      - name: Prepare release directory
         run: |
           mkdir release
           copy dist\funfile_api.exe release\
           copy config.sample.json release\
+          copy README.md release\ 2>NUL || echo No README found
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: funfile-api-windows
-          path: dist/*.exe
-
-      - name: Create ZIP
+      - name: Create ZIP package
         run: |
-          powershell Compress-Archive release\* funfile-api-${{ github.ref_name }}-windows.zip
+          powershell Compress-Archive release\* funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip
 
-      - name: Create Release
+      - name: Generate SHA256 checksum
+        run: |
+          powershell Get-FileHash funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip -Algorithm SHA256 | Select-Object -ExpandProperty Hash > funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip.sha256
+
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: funfile-api-${{ github.ref_name }}-windows.zip
+          name: FunFile CLI ${{ github.ref_name }}
+          body: |
+            Windows release for ${{ github.ref_name }}
+
+            Included builds:
+            - Windows x64
+            - Windows x86
+
+            Each package contains:
+            - funfile_api.exe
+            - config.sample.json
+            - README.md (if present)
+
+            SHA256 checksums provided for verification.
+          files: |
+            funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip
+            funfile-api-${{ github.ref_name }}-windows-${{ matrix.architecture }}.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
