@@ -1,0 +1,84 @@
+# ----------------------------
+# Project specific
+# ----------------------------
+
+config.json
+
+# ----------------------------
+# Python
+# ----------------------------
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+*.spec
+
+# Virtual environments
+venv/
+.env/
+.venv/
+ENV/
+env/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# Pyre
+.pyre/
+
+# ----------------------------
+# IDE / Editor
+# ----------------------------
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ----------------------------
+# OS Files
+# ----------------------------
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ----------------------------
+# Logs
+# ----------------------------
+
+*.log
+
+# ----------------------------
+# Temporary files
+# ----------------------------
+
+tmp/
+temp/
+*.tmp
+
